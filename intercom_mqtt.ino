@@ -256,8 +256,6 @@ void onMqttConnect(bool sessionPresent) {
   String autounlock_subtopic = "devices/" + APSSID + "/cmd/autounlock";
 
   String pubtopic = "devices/announce";
-  String mute_pubtopic = "devices/" + APSSID + "/mute";
-  String autounlock_pubtopic = "devices/" + APSSID + "/autounlock";
 
   uint16_t packetIdSub0 = mqttClient.subscribe(unlock_subtopic.c_str(), 0);
   uint16_t packetIdSub1 = mqttClient.subscribe(mute_subtopic.c_str(), 0);
@@ -299,6 +297,56 @@ void onMqttUnsubscribe(uint16_t packetId) {
 
 void onMqttMessage(const espMqttClientTypes::MessageProperties& properties, const char* topic, const uint8_t* payload, size_t len, size_t index, size_t total) {
   (void) payload;
+  const char* data = (char*)payload;
+  const char * cmd_topic = String("devices/" + APSSID + "/cmd").c_str();
+  const char * mute_topic = String("devices/" + APSSID + "/cmd/mute").c_str();
+  const char * autounlock_topic = String("devices/" + APSSID + "/cmd/autounlock").c_str();
+
+  const char * mute_pubtopic = String("devices/" + APSSID + "/mute").c_str();
+  const char * autounlock_pubtopic = String("devices/" + APSSID + "/autounlock").c_str();
+
+  if (topic == cmd_topic) {
+    if (data == "unlock"){
+      unlockDoor();
+    } else if (data == "reset") {
+      handleReset();
+    }
+  } else if (topic == mute_topic) {
+    int mapped_setting = (data == "1") ? 1 : ((data == "0") ? 0 : -1);
+
+    switch (mapped_setting) {
+      case 0:
+      case 1:
+        {
+          bool mapped_state = !mapped_setting;
+          digitalWrite(MUTEPIN, mapped_state);
+          mqttClient.publish(mute_pubtopic, 0, true, (char*)mapped_state);
+          String state = (mapped_setting == 1) ? "MUTED" : "UNMUTED";
+          Serial.println(state);
+          break;
+        }
+      default:
+        Serial.print("Unrecognised option -> ");
+        Serial.println(data);
+    }
+  } else if (topic == autounlock_topic) {
+    int mapped_setting = (data == "1") ? 1 : ((data == "0") ? 0 : -1);
+
+    switch (mapped_setting) {
+      case 0:
+      case 1:
+        {
+          autounlock = mapped_setting;
+          String state = (mapped_setting == 1) ? "AUTOUNLOCK ON" : "AUTOUNLOCK OFF";
+          Serial.println(state);
+          break;
+        }
+      default:
+        Serial.print("Unrecognised option -> ");
+        Serial.println(data);
+    }
+  }
+
   Serial.println("Publish received.");
   Serial.print("  topic: ");
   Serial.println(topic);
@@ -314,6 +362,8 @@ void onMqttMessage(const espMqttClientTypes::MessageProperties& properties, cons
   Serial.println(index);
   Serial.print("  total: ");
   Serial.println(total);
+  Serial.println(" payload ");
+  Serial.print(data);
 }
 
 void onMqttPublish(uint16_t packetId) {
@@ -328,24 +378,8 @@ void networkingTask() {
   }
 }
 
-void handleNotFound() {
-  digitalWrite(led, 0);
-  //Server.send(404, "application/json", "{\"status\": \"error\", \"msg\": \"Not Found\"}");
-  digitalWrite(led, 1);
-}
-
-void handleUnlock() {
-  digitalWrite(IOLOCK, HIGH);
-  digitalWrite(led, 0);
-  //Server.send(200, "application/json", "{\"status\": \"ok\", \"msg\": \"Successful\"}");
-  udelay(500);
-  digitalWrite(IOLOCK, LOW);
-  digitalWrite(led, 1);
-}
-
 void handleReset() {
   digitalWrite(led, 0);
-  //Server.send(200, "application/json", "{\"status\": \"ok\", \"msg\": \"Resetting Settings\"}");
   udelay(500);
   digitalWrite(led, 1);
 
