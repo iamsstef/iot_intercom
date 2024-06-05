@@ -491,7 +491,7 @@ void loop() {
 
 void publishRing() {
   String ring_pubtopic = "devices/" + APSSID + "/events";
-  Serial.println("Bell ring detected!")
+  Serial.println("Bell ring detected!");
   mqttClient.publish(ring_pubtopic.c_str(), 0, true, "RING");
 }
 
