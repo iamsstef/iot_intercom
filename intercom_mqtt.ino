@@ -456,7 +456,7 @@ void loop() {
 
     // wait for WiFi connection
     if ((WiFi.status() == WL_CONNECTED)) {
-      callUrl();
+      publishRing();
     }
 
     blink();
@@ -484,13 +484,15 @@ void loop() {
       ESP.restart();
     } else if (elapsed > 50) {
       flash();
-      callUrl();
+      publishRing();
     }
   }
 }
 
-void callUrl() {
-
+void publishRing() {
+  String ring_pubtopic = "devices/" + APSSID + "/events";
+  Serial.println("Bell ring detected!")
+  mqttClient.publish(ring_pubtopic.c_str(), 0, true, "RING");
 }
 
 void udelay(int ms) {
