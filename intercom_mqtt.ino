@@ -281,12 +281,6 @@ void onMqttDisconnect(espMqttClientTypes::DisconnectReason reason) {
 
 void onMqttSubscribe(uint16_t packetId, const espMqttClientTypes::SubscribeReturncode* codes, size_t len) {
   Serial.println("Subscribe acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
-  for (size_t i = 0; i < len; ++i) {
-    Serial.print("  qos: ");
-    Serial.println(static_cast<uint8_t>(codes[i]));
-  }
 }
 
 void onMqttUnsubscribe(uint16_t packetId) {
@@ -296,22 +290,26 @@ void onMqttUnsubscribe(uint16_t packetId) {
 }
 
 void onMqttMessage(const espMqttClientTypes::MessageProperties& properties, const char* topic, const uint8_t* payload, size_t len, size_t index, size_t total) {
-  (void) payload;
-  const char* data = (char*)payload;
-  const char * cmd_topic = String("devices/" + APSSID + "/cmd").c_str();
-  const char * mute_topic = String("devices/" + APSSID + "/cmd/mute").c_str();
-  const char * autounlock_topic = String("devices/" + APSSID + "/cmd/autounlock").c_str();
+  String cmd_topic = "devices/" + APSSID + "/cmd";
+  String mute_topic = "devices/" + APSSID + "/cmd/mute";
+  String autounlock_topic = "devices/" + APSSID + "/cmd/autounlock";
 
-  const char * mute_pubtopic = String("devices/" + APSSID + "/mute").c_str();
-  const char * autounlock_pubtopic = String("devices/" + APSSID + "/autounlock").c_str();
+  String mute_pubtopic = "devices/" + APSSID + "/mute";
+  String autounlock_pubtopic = "devices/" + APSSID + "/autounlock";
 
-  if (topic == cmd_topic) {
+  char* tmp = new char[len + 1];
+  memcpy(tmp, payload, len);
+  tmp[len] = '\0';
+  String data = String(tmp);
+  delete[] tmp;
+
+  if (String(topic) == cmd_topic) {
     if (data == "unlock"){
       unlockDoor();
     } else if (data == "reset") {
       handleReset();
     }
-  } else if (topic == mute_topic) {
+  } else if (String(topic) == mute_topic) {
     int mapped_setting = (data == "1") ? 1 : ((data == "0") ? 0 : -1);
 
     switch (mapped_setting) {
@@ -320,7 +318,7 @@ void onMqttMessage(const espMqttClientTypes::MessageProperties& properties, cons
         {
           bool mapped_state = !mapped_setting;
           digitalWrite(MUTEPIN, mapped_state);
-          mqttClient.publish(mute_pubtopic, 0, true, (char*)mapped_state);
+          mqttClient.publish(mute_pubtopic.c_str(), 0, true, data.c_str());
           String state = (mapped_setting == 1) ? "MUTED" : "UNMUTED";
           Serial.println(state);
           break;
@@ -329,7 +327,7 @@ void onMqttMessage(const espMqttClientTypes::MessageProperties& properties, cons
         Serial.print("Unrecognised option -> ");
         Serial.println(data);
     }
-  } else if (topic == autounlock_topic) {
+  } else if (String(topic) == autounlock_topic) {
     int mapped_setting = (data == "1") ? 1 : ((data == "0") ? 0 : -1);
 
     switch (mapped_setting) {
@@ -337,6 +335,7 @@ void onMqttMessage(const espMqttClientTypes::MessageProperties& properties, cons
       case 1:
         {
           autounlock = mapped_setting;
+          mqttClient.publish(autounlock_pubtopic.c_str(), 0, true, data.c_str());
           String state = (mapped_setting == 1) ? "AUTOUNLOCK ON" : "AUTOUNLOCK OFF";
           Serial.println(state);
           break;
@@ -350,20 +349,11 @@ void onMqttMessage(const espMqttClientTypes::MessageProperties& properties, cons
   Serial.println("Publish received.");
   Serial.print("  topic: ");
   Serial.println(topic);
-  Serial.print("  qos: ");
-  Serial.println(properties.qos);
-  Serial.print("  dup: ");
-  Serial.println(properties.dup);
   Serial.print("  retain: ");
   Serial.println(properties.retain);
-  Serial.print("  len: ");
-  Serial.println(len);
-  Serial.print("  index: ");
-  Serial.println(index);
-  Serial.print("  total: ");
-  Serial.println(total);
   Serial.println(" payload ");
-  Serial.print(data);
+  Serial.print(data.c_str());
+  Serial.println("");
 }
 
 void onMqttPublish(uint16_t packetId) {
@@ -451,10 +441,10 @@ void handleMqttReconnect() {
     connectToMqtt();
   }
 
-  if (currentMillis - millisDisconnect > 60000) {
+  /*if (currentMillis - millisDisconnect > 60000) {
     millisDisconnect = currentMillis;
     mqttClient.disconnect();
-  }
+  }*/
 }
 
 void loop() {
