@@ -30,7 +30,7 @@ bool reconnectMqtt = false;
 uint32_t lastReconnect = 0;
 uint32_t lastMillis = 0;
 uint32_t millisDisconnect = 0;
-bool autounlock = 0;
+bool autounlock;
 uint8_t MUTEPIN_JMP_STATE;
 
 BasicBlinker basicBlinker(500);
@@ -51,21 +51,22 @@ uint64_t macAddressTrunc = macAddress << 40;
 uint32_t chipID = macAddressTrunc >> 40;
 
 String uid = String(chipID, HEX);
+
 String friendly_name = "Intercom";
 String APSSID = friendly_name + "-" + uid;
-const char * APPWD = "password";
-
+String APPWD = "AP_PASSWORD";
 String discovery_prefix = "homeassistant";
+String topic_prefix = "devices";
 
-String will_pubtopic = "devices/" + uid + "/status";
-String mute_pubtopic = "devices/" + uid + "/mute";
-String autounlock_pubtopic = "devices/" + uid + "/autounlock";
-String ring_pubtopic = "devices/" + uid + "/events";
+String will_pubtopic = topic_prefix + "/" + uid + "/status";
+String mute_pubtopic = topic_prefix + "/" + uid + "/mute";
+String autounlock_pubtopic = topic_prefix + "/" + uid + "/autounlock";
+String ring_pubtopic = topic_prefix + "/" + uid + "/events";
 
 String birth_subtopic = discovery_prefix + "/status";
-String cmd_subtopic = "devices/" + uid + "/cmd";
-String mute_subtopic = "devices/" + uid + "/cmd/mute";
-String autounlock_subtopic = "devices/" + uid + "/cmd/autounlock";
+String cmd_subtopic = topic_prefix + "/" + uid + "/cmd";
+String mute_subtopic = topic_prefix + "/" + uid + "/cmd/mute";
+String autounlock_subtopic = topic_prefix + "/" + uid + "/cmd/autounlock";
 
 const char * configtopic(String compoment, String identifier) {
   return String(discovery_prefix + "/" + compoment + "/" + identifier + uid + "/config").c_str();
@@ -77,7 +78,6 @@ String event_payload =
 " \"state_topic\": \"" + ring_pubtopic + "\","
 " \"event_types\": [\"ring\"],"
 " \"qos\": 0,"
-" \"availability_topic\": \"" + will_pubtopic + "\","
 " \"device_class\": \"doorbell\","
 " \"icon\": \"mdi:doorbell\","
 " \"unique_id\": \"ringevent_" + uid + "\","
@@ -186,7 +186,7 @@ void setup() {
 
   pinMode(IOLOCK, OUTPUT);
   pinMode(IOLED, OUTPUT);
-  pinMode(IOBELL, INPUT);
+  pinMode(IOBELL, INPUT_PULLDOWN);
   pinMode(MUTEPIN, OUTPUT);
   pinMode(IORST, INPUT_PULLUP);
   pinMode(MUTEPIN_JMP, INPUT_PULLUP);
@@ -263,7 +263,7 @@ void setup() {
   mqttClient.onUnsubscribe(onMqttUnsubscribe);
   mqttClient.onMessage(onMqttMessage);
   mqttClient.onPublish(onMqttPublish);
-  mqttClient.setWill(will_pubtopic.c_str(), 0, false, "offline");
+  mqttClient.setWill(will_pubtopic.c_str(), 0, true, "offline");
   mqttClient.setCleanSession(true);
   mqttClient.setCACert(rootca);
   mqttClient.setCredentials(mqttusr, mqttpwd);
@@ -272,7 +272,7 @@ void setup() {
   xTaskCreatePinnedToCore((TaskFunction_t)networkingTask, "mqttclienttask", 5120, nullptr, 1, &taskHandle, 0);
 
   bool res;
-  res = wm.autoConnect(APSSID.c_str(),APPWD);
+  res = wm.autoConnect(APSSID.c_str(),APPWD.c_str());
   while (WiFi.status() != WL_CONNECTED || wm.getConfigPortalActive()) {
     yield();
     wm.process();
@@ -350,6 +350,16 @@ void onMqttConnect(bool sessionPresent) {
   Serial.print("Session present: ");
   Serial.println(sessionPresent);
 
+  Serial.println("Publishing online status at QoS 0, packetId: ");
+  uint16_t packetIdPub0 = mqttClient.publish(will_pubtopic.c_str(), 0, true, "online");
+  uint16_t packetIdPub1 = mqttClient.publish(autounlock_pubtopic.c_str(), 0, true, String(autounlock).c_str());
+  uint16_t packetIdPub2 = mqttClient.publish(mute_pubtopic.c_str(), 0, true, String(!MUTEPIN_JMP_STATE).c_str());
+  Serial.println("Publishing at QoS 0, packetId: ");
+  Serial.println(packetIdPub0);
+  Serial.println(packetIdPub1);
+  Serial.println(packetIdPub2);
+  publish_discovery();
+
   uint16_t packetIdSub0 = mqttClient.subscribe(cmd_subtopic.c_str(), 0);
   uint16_t packetIdSub1 = mqttClient.subscribe(mute_subtopic.c_str(), 0);
   uint16_t packetIdSub2 = mqttClient.subscribe(autounlock_subtopic.c_str(), 0);
@@ -358,19 +368,6 @@ void onMqttConnect(bool sessionPresent) {
   Serial.println(packetIdSub0);
   Serial.println(packetIdSub1);
   Serial.println(packetIdSub2);
-
-  uint16_t packetIdPub0 = mqttClient.publish(will_pubtopic.c_str(), 0, false, "online");
-  udelay(200);
-  uint16_t packetIdPub1 = mqttClient.publish(autounlock_pubtopic.c_str(), 0, true, String(autounlock).c_str());
-  udelay(200);
-  uint16_t packetIdPub2 = mqttClient.publish(mute_pubtopic.c_str(), 0, true, String(!MUTEPIN_JMP_STATE).c_str());
-  udelay(200);
-  Serial.println("Publishing at QoS 0, packetId: ");
-  Serial.println(packetIdPub0);
-  Serial.println(packetIdPub1);
-  Serial.println(packetIdPub2);
-  udelay(200);
-  publish_discovery();
 }
 
 void onMqttDisconnect(espMqttClientTypes::DisconnectReason reason) {
@@ -477,17 +474,11 @@ void publish_discovery() {
   //note for myself: this should be called durring the mqtt connection event or when the device receives a birth status message from homeassistant's birth topic
   Serial.println("Publishing at QoS 0, packetId: ");
   uint16_t packetIdPub0 = mqttClient.publish(configtopic("event", "ring"), 0, false, event_payload.c_str());
-  udelay(200);
   uint16_t packetIdPub1 = mqttClient.publish(configtopic("button", "unlock"), 0, false, unlockbtn_payload.c_str());
-  udelay(200);
   uint16_t packetIdPub2 = mqttClient.publish(configtopic("switch", "mute"), 0, false, mutesw_payload.c_str());
-  udelay(200);
   uint16_t packetIdPub3 = mqttClient.publish(configtopic("switch", "autounlock"), 0, false, autounlocksw_payload.c_str());
-  udelay(200);
   uint16_t packetIdPub4 = mqttClient.publish(configtopic("button", "rb"), 0, false, rbbtn_payload.c_str());
-  udelay(200);
   uint16_t packetIdPub5 = mqttClient.publish(configtopic("button", "rst"), 0, false, rstbtn_payload.c_str());
-  udelay(200);
 
   Serial.println(packetIdPub0);
   Serial.println(packetIdPub1);
